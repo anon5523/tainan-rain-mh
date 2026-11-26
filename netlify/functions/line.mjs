@@ -17,6 +17,7 @@ for (const [id, v] of Object.entries(DATA.mh)) {
   if (c) (BYC[c] = BYC[c] || []).push(id);
 }
 for (const c in BYC) BYC[c].sort((a, b) => +a.slice(c.length) - +b.slice(c.length));
+const AA = DATA.aa || {};
 const env = k => String((globalThis.Netlify?.env?.get?.(k)) ?? process.env[k] ?? '').trim();
 
 const get = id => {
@@ -24,7 +25,9 @@ const get = id => {
   if (!r) return null;
   const [x, y, z, d, pdf, cl, rd, lat, lon] = r;
   const code = CODE_LIST.find(k => id.startsWith(k) && /^\d+$/.test(id.slice(k.length)));
-  return { id, x, y, z, d, pdf: !!pdf, cl, rd, lat, lon, code, inv: z != null && d != null ? +(z - d).toFixed(2) : null };
+  const a = AA[id];
+  return { id, x, y, z, d, pdf: !!pdf, cl, rd, lat, lon, code, inv: z != null && d != null ? +(z - d).toFixed(2) : null,
+    aa: a ? { e1: a[0], e2: a[1], e3: a[2], tw: a[3], bw: a[4], bh: a[5], nk: a[6], fl: a[7] || '' } : null };
 };
 const dname = c => (CODES.find(x => x.c === c) || {}).d || '';
 
@@ -56,6 +59,28 @@ function parse(text) {
 const fmt = v => (v == null ? '—' : v.toFixed(2) + ' m');
 const site = () => env('SITE_URL').replace(/\/$/, '');
 
+function aaFlex(a) {
+  const f = v => (v == null ? '—' : v.toFixed(2));
+  const bwT = a.bw ? a.bw.reduce((p, q) => p + q, 0) : null;
+  const r = a.tw && bwT ? Math.min(0.6, Math.max(0.22, a.tw / bwT)) : 0.35;
+  const share = a.nk && a.bh ? Math.min(0.6, Math.max(0.25, a.nk / (a.nk + a.bh))) : 0.4;
+  const BW = 110, HT = 96, x0 = 34, y0 = 14, sw = Math.round(BW * r), nkp = Math.round(HT * share), bhp = HT - nkp;
+  const abs = (x, y, w, h, extra) => ({ type: 'box', layout: 'vertical', position: 'absolute', offsetStart: `${x}px`, offsetTop: `${y}px`, width: `${w}px`, height: `${h}px`, contents: [], ...extra });
+  const txt = (x, y, t, color, size, w, align) => ({ type: 'box', layout: 'vertical', position: 'absolute', offsetStart: `${x}px`, offsetTop: `${y}px`, width: `${w || 90}px`, contents: [{ type: 'text', text: t, size: size || 'xxs', color: color || '#17202e', align: align || 'start', weight: 'bold' }] });
+  const P = '#d63384';
+  const yBox = y0 + nkp, yBot = yBox + bhp, xr = x0 + BW;
+  return { type: 'box', layout: 'vertical', height: `${yBot + 26}px`, margin: 'md', backgroundColor: '#f2f4f7', cornerRadius: '8px', contents: [
+    abs(x0, yBox, BW, bhp, { borderWidth: '2px', borderColor: '#17202e', backgroundColor: '#dbe7fb' }),
+    abs(xr - sw, y0, sw, nkp + 2, { borderWidth: '2px', borderColor: '#17202e', backgroundColor: '#eef3fc' }),
+    txt(xr + 6, y0 - 6, `EL ${f(a.e1)}`), txt(xr + 6, yBox - 6, `EL ${f(a.e2)}`), txt(xr + 6, yBot - 8, `EL ${f(a.e3)}`),
+    txt(xr - sw - 40, y0 - 13, `${a.tw ?? '—'}cm`, P, 'xxs', sw + 80, 'center'),
+    txt(x0 - 30, yBot + 4, `${bwT ?? '—'}cm`, P, 'xxs', BW + 60, 'center'),
+    txt(0, yBox + bhp / 2 - 7, `${a.bh ?? '—'}`, P, 'xxs', x0 - 2, 'end'),
+    txt(0, y0 + nkp / 2 - 7, `${a.nk ?? '—'}`, P, 'xxs', xr - sw - 3, 'end'),
+  ] };
+}
+
+let NO_DRAW = false;
 function bubble(o, dist) {
   const rows = [
     ['人孔頂高程', fmt(o.z)], ['人孔深度', fmt(o.d)], ['底高程', fmt(o.inv)],
@@ -64,6 +89,7 @@ function bubble(o, dist) {
   const ll = o.lat != null ? `${o.lat.toFixed(6)}, ${o.lon.toFixed(6)}` : null;
   const buttons = [];
   if (o.pdf) buttons.push({ type: 'button', style: 'primary', height: 'sm', color: '#0b63ce', action: { type: 'uri', label: '開啟調查表', uri: PDF + o.id + '.pdf' } });
+  if (o.pdf && o.aa) buttons.push({ type: 'button', style: 'secondary', height: 'sm', action: { type: 'uri', label: '看斷面原圖（第3頁）', uri: PDF + o.id + '.pdf#page=3' } });
   if (o.lat != null) {
     buttons.push({ type: 'button', style: 'secondary', height: 'sm', action: { type: 'uri', label: 'Google 地圖', uri: `https://www.google.com/maps/search/?api=1&query=${o.lat},${o.lon}` } });
     buttons.push({ type: 'button', style: 'secondary', height: 'sm', action: { type: 'clipboard', label: '複製經緯度', clipboardText: ll } });
@@ -85,6 +111,17 @@ function bubble(o, dist) {
           { type: 'text', text: k, size: 'sm', color: '#687386', flex: 4 },
           { type: 'text', text: v, size: 'sm', color: '#17202e', weight: 'bold', flex: 6, align: 'end' },
         ] })),
+        ...(o.aa ? [
+          { type: 'separator', margin: 'md' },
+          { type: 'text', text: 'A-A 斷面（調查表第 3 頁）', size: 'sm', color: '#0b63ce', weight: 'bold', margin: 'md' },
+          ...(o.aa.fl ? [{ type: 'text', text: o.aa.fl === 'A' ? '＊斷面圖無法辨識，以屬性表推算' : '＊部分數值以管線／人孔屬性表補足', size: 'xxs', color: '#b54708', wrap: true }] : []),
+          ...[['箱涵頂高程', fmt(o.aa.e2)], ['渠底高程', fmt(o.aa.e3)], ['人孔直徑', o.aa.tw != null ? o.aa.tw + ' cm' : '—'],
+            ['箱涵寬度', o.aa.bw ? o.aa.bw.reduce((p, q) => p + q, 0) + ' cm' : '—'], ['箱涵淨高', o.aa.bh != null ? o.aa.bh + ' cm' : '—']]
+            .map(([k, v]) => ({ type: 'box', layout: 'horizontal', contents: [
+              { type: 'text', text: k, size: 'sm', color: '#687386', flex: 4 },
+              { type: 'text', text: v, size: 'sm', color: '#17202e', weight: 'bold', flex: 6, align: 'end' } ] })),
+          ...(NO_DRAW ? [] : [aaFlex(o.aa)]),
+        ] : []),
         ...(ll ? [
           { type: 'separator', margin: 'md' },
           { type: 'text', text: '經緯度（WGS84）', size: 'sm', color: '#687386', margin: 'md' },
@@ -255,18 +292,29 @@ async function setupMenu() {
 }
 
 async function reply(token, messages) {
-  const r = await fetch('https://api.line.me/v2/bot/message/reply', {
+  const send = msgs => fetch('https://api.line.me/v2/bot/message/reply', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env('LINE_CHANNEL_ACCESS_TOKEN')}` },
-    body: JSON.stringify({ replyToken: token, messages }),
+    body: JSON.stringify({ replyToken: token, messages: msgs }),
   });
-  if (!r.ok) console.log('reply failed', r.status, await r.text());
+  const r = await send(messages);
+  if (r.ok) return true;
+  const t = await r.text();
+  console.log('reply failed', r.status, t);
+  return { status: r.status, text: t };
 }
 
 export default async (req) => {
   if (req.method === 'GET' && new URL(req.url).searchParams.get('setup') === 'menu') {
     try { await setupMenu(); return new Response('✅ 圖文選單已建立！重新打開 LINE 聊天室就會看到下方的選單。', { headers: { 'content-type': 'text/plain; charset=utf-8' } }); }
     catch (e) { return new Response('❌ 建立失敗：' + e.message, { status: 500, headers: { 'content-type': 'text/plain; charset=utf-8' } }); }
+  }
+  const tq = req.method === 'GET' && new URL(req.url).searchParams.get('test');
+  if (tq) {
+    NO_DRAW = false;
+    const msgs = answer({ type: 'message', source: { type: 'user' }, message: { type: 'text', text: tq } });
+    const r = await fetch('https://api.line.me/v2/bot/message/validate/reply', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${env('LINE_CHANNEL_ACCESS_TOKEN')}` }, body: JSON.stringify({ messages: msgs }) });
+    return new Response(`${tq}：${r.ok ? '✅ 訊息格式正確' : '❌ ' + r.status + ' ' + (await r.text())}`, { headers: { 'content-type': 'text/plain; charset=utf-8' } });
   }
   if (req.method === 'GET') {
     const sec = env('LINE_CHANNEL_SECRET'), tok = env('LINE_CHANNEL_ACCESS_TOKEN');
@@ -287,7 +335,13 @@ export default async (req) => {
   const { events = [] } = JSON.parse(body || '{}');
   await Promise.all(events.map(async ev => {
     if (!ev.replyToken) return;
-    try { const msgs = answer(ev); if (msgs) await reply(ev.replyToken, msgs); }
+    try {
+      NO_DRAW = false;
+      const msgs = answer(ev);
+      if (!msgs) return;
+      const ok = await reply(ev.replyToken, msgs);
+      if (ok !== true && ok.status === 400) { NO_DRAW = true; await reply(ev.replyToken, answer(ev)); }
+    }
     catch (e) { console.log('error', e); }
   }));
   return new Response('ok');
