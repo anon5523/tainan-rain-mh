@@ -58,12 +58,16 @@ const site = () => env('SITE_URL').replace(/\/$/, '');
 
 function bubble(o, dist) {
   const rows = [
-    ['頂高程', fmt(o.z)], ['深度', fmt(o.d)], ['底高程', fmt(o.inv)],
+    ['人孔頂高程', fmt(o.z)], ['人孔深度', fmt(o.d)], ['底高程', fmt(o.inv)],
     ['TWD97 X', o.x == null ? '—' : o.x.toFixed(3)], ['TWD97 Y', o.y == null ? '—' : o.y.toFixed(3)],
   ];
+  const ll = o.lat != null ? `${o.lat.toFixed(6)}, ${o.lon.toFixed(6)}` : null;
   const buttons = [];
   if (o.pdf) buttons.push({ type: 'button', style: 'primary', height: 'sm', color: '#0b63ce', action: { type: 'uri', label: '開啟調查表', uri: PDF + o.id + '.pdf' } });
-  if (o.lat != null) buttons.push({ type: 'button', style: 'secondary', height: 'sm', action: { type: 'uri', label: 'Google 地圖', uri: `https://www.google.com/maps/search/?api=1&query=${o.lat},${o.lon}` } });
+  if (o.lat != null) {
+    buttons.push({ type: 'button', style: 'secondary', height: 'sm', action: { type: 'uri', label: 'Google 地圖', uri: `https://www.google.com/maps/search/?api=1&query=${o.lat},${o.lon}` } });
+    buttons.push({ type: 'button', style: 'secondary', height: 'sm', action: { type: 'clipboard', label: '複製經緯度', clipboardText: ll } });
+  }
   if (site()) buttons.push({ type: 'button', style: 'link', height: 'sm', action: { type: 'uri', label: '在快找開啟', uri: `${site()}/#${o.id}` } });
   return {
     type: 'bubble', size: 'kilo',
@@ -76,10 +80,17 @@ function bubble(o, dist) {
     },
     body: {
       type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: '14px',
-      contents: rows.map(([k, v]) => ({ type: 'box', layout: 'horizontal', contents: [
-        { type: 'text', text: k, size: 'sm', color: '#687386', flex: 4 },
-        { type: 'text', text: v, size: 'sm', color: '#17202e', weight: 'bold', flex: 6, align: 'end' },
-      ] })),
+      contents: [
+        ...rows.map(([k, v]) => ({ type: 'box', layout: 'horizontal', contents: [
+          { type: 'text', text: k, size: 'sm', color: '#687386', flex: 4 },
+          { type: 'text', text: v, size: 'sm', color: '#17202e', weight: 'bold', flex: 6, align: 'end' },
+        ] })),
+        ...(ll ? [
+          { type: 'separator', margin: 'md' },
+          { type: 'text', text: '經緯度（WGS84）', size: 'sm', color: '#687386', margin: 'md' },
+          { type: 'text', text: ll, size: 'md', color: '#17202e', weight: 'bold', wrap: true },
+        ] : []),
+      ],
     },
     footer: { type: 'box', layout: 'vertical', spacing: 'sm', contents: buttons.length ? buttons : [{ type: 'text', text: '此人孔沒有調查表', size: 'xs', color: '#687386', align: 'center' }] },
   };
@@ -176,7 +187,7 @@ function answer(ev) {
     if (act === 'dist') return [districtPicker()];
     if (act === 'd') return [rangePicker(q.get('c'))];
     if (act === 'r') return [hundredPanel(q.get('c'), +q.get('h'))];
-    if (act === 'id') { const o = get(q.get('id')); return o ? [flexMsg(`${o.id} 頂高程 ${fmt(o.z)} 深度 ${fmt(o.d)}`, bubble(o))] : [textMsg('查無此人孔。')]; }
+    if (act === 'id') { const o = get(q.get('id')); return o ? [flexMsg(`${o.id} 頂高程 ${fmt(o.z)} 深度 ${fmt(o.d)} ${o.lat != null ? o.lat.toFixed(6) + ',' + o.lon.toFixed(6) : ''}`, bubble(o))] : [textMsg('查無此人孔。')]; }
     return null;
   }
   if (ev.type !== 'message') return null;
@@ -195,7 +206,7 @@ function answer(ev) {
       // 沒有 @：只在「整則訊息就是一個存在的人孔編號」時回應
       const q = parse(t);
       const o = q && q.code && q.num && !q.district ? lookup(q.code, q.num) : null;
-      return o ? [flexMsg(`${o.id} 頂高程 ${fmt(o.z)} 深度 ${fmt(o.d)}`, bubble(o))] : null;
+      return o ? [flexMsg(`${o.id} 頂高程 ${fmt(o.z)} 深度 ${fmt(o.d)} ${o.lat != null ? o.lat.toFixed(6) + ',' + o.lon.toFixed(6) : ''}`, bubble(o))] : null;
     }
     for (const x of [...ms].sort((a, b) => b.index - a.index)) t = t.slice(0, x.index) + ' ' + t.slice(x.index + x.length);
     t = t.trim();
@@ -212,7 +223,7 @@ function answer(ev) {
     if (found.length) return [flexMsg(found.map(o => o.id).join('、'), found.length === 1 ? bubble(found[0]) : { type: 'carousel', contents: found.map(o => bubble(o)) })];
   }
   const o = lookup(p.code, p.num);
-  if (o) return [flexMsg(`${o.id} 頂高程 ${fmt(o.z)} 深度 ${fmt(o.d)}`, bubble(o))];
+  if (o) return [flexMsg(`${o.id} 頂高程 ${fmt(o.z)} 深度 ${fmt(o.d)} ${o.lat != null ? o.lat.toFixed(6) + ',' + o.lon.toFixed(6) : ''}`, bubble(o))];
   const n = +p.num;
   const near = Object.keys(DATA.mh).filter(id => id.startsWith(p.code) && /^\d+$/.test(id.slice(p.code.length)) && DATA.mh[id][4])
     .map(id => [id, Math.abs(+id.slice(p.code.length) - n)]).sort((a, b) => a[1] - b[1]).slice(0, 5).map(a => a[0]).sort();
