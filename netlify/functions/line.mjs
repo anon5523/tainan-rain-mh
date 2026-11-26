@@ -2,6 +2,7 @@
 // 環境變數：LINE_CHANNEL_SECRET、LINE_CHANNEL_ACCESS_TOKEN、SITE_URL（例：https://tainan-rain-mh.netlify.app）
 import crypto from 'node:crypto';
 import DATA from './mh-data.mjs';
+import MENU_IMG from './richmenu-img.mjs';
 
 export const config = { path: '/api/line' };
 
@@ -9,6 +10,13 @@ const PDF = 'https://sewer.water.tainan.gov.tw/TNRS/Uploads/investigate/';
 const CLS = { N: '正常人孔', C: '覆蓋人孔', V: '虛人孔' };
 const CODES = DATA.codes;
 const CODE_LIST = [...new Set(CODES.map(c => c.c))].sort((a, b) => b.length - a.length);
+const BYC = {};
+for (const [id, v] of Object.entries(DATA.mh)) {
+  if (!v[4]) continue;
+  const c = CODE_LIST.find(k => id.startsWith(k) && /^\d+$/.test(id.slice(k.length)));
+  if (c) (BYC[c] = BYC[c] || []).push(id);
+}
+for (const c in BYC) BYC[c].sort((a, b) => +a.slice(c.length) - +b.slice(c.length));
 const env = k => String((globalThis.Netlify?.env?.get?.(k)) ?? process.env[k] ?? '').trim();
 
 const get = id => {
@@ -79,12 +87,72 @@ function bubble(o, dist) {
 
 const quick = () => ({
   items: [
-    { type: 'action', action: { type: 'location', label: '📍 找我附近的人孔' } },
+    { type: 'action', action: { type: 'location', label: '📍 附近人孔' } },
+    { type: 'action', action: { type: 'postback', label: '🗂️ 選行政區', data: 'act=dist', displayText: '選行政區' } },
     ...(site() ? [{ type: 'action', action: { type: 'uri', label: '🔍 開啟快找', uri: site() } }] : []),
   ],
 });
 const textMsg = text => ({ type: 'text', text, quickReply: quick() });
 const flexMsg = (alt, contents) => ({ type: 'flex', altText: alt, contents, quickReply: quick() });
+
+// ---------- 點選介面 ----------
+const cell = (title, sub, data, display, color) => ({
+  type: 'box', layout: 'vertical', flex: 1, backgroundColor: color || '#e8f0fc', cornerRadius: '8px', paddingAll: '8px', justifyContent: 'center',
+  action: { type: 'postback', label: String(title).slice(0, 20), data, displayText: display },
+  contents: [
+    { type: 'text', text: String(title), size: 'sm', weight: 'bold', color: '#0b63ce', align: 'center', wrap: true },
+    ...(sub ? [{ type: 'text', text: String(sub), size: 'xxs', color: '#687386', align: 'center', wrap: true }] : []),
+  ],
+});
+const filler = () => ({ type: 'box', layout: 'vertical', flex: 1, contents: [] });
+function grid(cells, per) {
+  const rows = [];
+  for (let i = 0; i < cells.length; i += per) {
+    const r = cells.slice(i, i + per);
+    while (r.length < per) r.push(filler());
+    rows.push({ type: 'box', layout: 'horizontal', spacing: 'sm', contents: r });
+  }
+  return rows;
+}
+const panel = (title, sub, rows, size) => ({
+  type: 'bubble', size: size || 'mega',
+  header: { type: 'box', layout: 'vertical', backgroundColor: '#0b63ce', paddingAll: '12px', contents: [
+    { type: 'text', text: title, color: '#ffffff', weight: 'bold', size: 'md', wrap: true },
+    ...(sub ? [{ type: 'text', text: sub, color: '#ffffffcc', size: 'xxs', wrap: true }] : []),
+  ] },
+  body: { type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: '10px', contents: rows },
+});
+
+function districtPicker() {
+  const cells = CODES.filter(c => BYC[c.c]).map(c => cell(c.d, `${c.c}・${BYC[c.c].length}`, `act=d&c=${c.c}`, `${c.d}（${c.c}）`));
+  return flexMsg('選擇行政區', panel('選擇行政區', '由南往北排列・數字為調查表份數', grid(cells, 3)));
+}
+function idPanels(c, ids, title) {
+  const bubbles = [];
+  for (let i = 0; i < ids.length && bubbles.length < 12; i += 25) {
+    const part = ids.slice(i, i + 25);
+    const cells = part.map(id => cell(id.slice(c.length), '', `act=id&id=${id}`, id, '#ffffff'));
+    bubbles.push(panel(title, `${part[0]} ～ ${part[part.length - 1]}`, grid(cells, 5), 'kilo'));
+  }
+  return flexMsg(title, bubbles.length === 1 ? bubbles[0] : { type: 'carousel', contents: bubbles });
+}
+function rangePicker(c) {
+  const ids = BYC[c] || [];
+  const name = `${dname(c)}（${c}）`;
+  if (!ids.length) return textMsg(`${name}沒有調查表。`);
+  if (ids.length <= 25) return idPanels(c, ids, `${name} 選擇人孔`);
+  const groups = {};
+  for (const id of ids) { const h = Math.floor(+id.slice(c.length) / 100); (groups[h] = groups[h] || []).push(id); }
+  const cells = Object.keys(groups).map(Number).sort((a, b) => a - b).map(h => {
+    const g = groups[h], a = g[0].slice(c.length), b = g[g.length - 1].slice(c.length);
+    return cell(`${a}–${b}`, `${g.length} 份`, `act=r&c=${c}&h=${h}`, `${c} ${a}–${b}`);
+  });
+  return flexMsg(`${name} 選擇編號範圍`, panel(`${name}`, `共 ${ids.length} 份調查表・先選編號範圍`, grid(cells, 3)));
+}
+function hundredPanel(c, h) {
+  const ids = (BYC[c] || []).filter(id => Math.floor(+id.slice(c.length) / 100) === h);
+  return ids.length ? idPanels(c, ids, `${dname(c)}（${c}）選擇人孔`) : textMsg('這個範圍沒有調查表。');
+}
 
 function nearest(lat, lon, k) {
   const r = Math.PI / 180, cos = Math.cos(lat * r), out = [];
@@ -96,10 +164,19 @@ function nearest(lat, lon, k) {
   return out.sort((a, b) => a[1] - b[1]).slice(0, k);
 }
 
-const HELP = '輸入人孔編號就能查詢，例如：\n・CWCR387\n・中西區 387\n・cwcr387\n\n輸入區名（例如「北區」）可看該區代碼。\n按下方「找我附近的人孔」傳送位置，會列出最近 5 個人孔。';
+const HELP = '輸入人孔編號就能查詢，例如：\n・CWCR387\n・中西區 387\n・cwcr387\n\n也可以用下方選單：\n・📍 附近人孔：傳送位置，列出最近 5 個\n・🗂️ 選行政區：依區、編號範圍點選\n・輸入區名（例如「北區」）直接選編號';
 
 function answer(ev) {
   if (ev.type === 'follow') return [textMsg('歡迎使用南雨人孔調查表快找！\n\n' + HELP)];
+  if (ev.type === 'postback') {
+    const q = new URLSearchParams(ev.postback.data);
+    const act = q.get('act');
+    if (act === 'dist') return [districtPicker()];
+    if (act === 'd') return [rangePicker(q.get('c'))];
+    if (act === 'r') return [hundredPanel(q.get('c'), +q.get('h'))];
+    if (act === 'id') { const o = get(q.get('id')); return o ? [flexMsg(`${o.id} 頂高程 ${fmt(o.z)} 深度 ${fmt(o.d)}`, bubble(o))] : [textMsg('查無此人孔。')]; }
+    return null;
+  }
   if (ev.type !== 'message') return null;
   const m = ev.message;
   if (m.type === 'location') {
@@ -110,11 +187,10 @@ function answer(ev) {
   if (m.type !== 'text') return [textMsg(HELP)];
   const t = m.text.trim();
   if (/^(help|說明|\?|？|使用說明|怎麼用)$/i.test(t)) return [textMsg(HELP)];
+  if (/^(選區|選行政區|行政區|選單|menu|開始)$/i.test(t)) return [districtPicker()];
   const p = parse(t);
   if (!p) return [textMsg('看不懂這個編號 🤔\n\n' + HELP)];
-  if (p.district) {
-    return [textMsg(p.district.map(c => `${c.d}：${c.c}（${c.p.split('、')[0]}）`).join('\n') + '\n\n請輸入代碼＋編號，例如 ' + p.district[0].c + '001')];
-  }
+  if (p.district) return p.district.slice(0, 2).map(c => rangePicker(c.c));
   if (p.multi) {
     const found = p.multi.map(c => lookup(c.c, p.num)).filter(Boolean);
     if (found.length) return [flexMsg(found.map(o => o.id).join('、'), found.length === 1 ? bubble(found[0]) : { type: 'carousel', contents: found.map(o => bubble(o)) })];
@@ -127,6 +203,27 @@ function answer(ev) {
   return [textMsg(`查無 ${p.code}${p.num}。` + (near.length ? `\n附近有調查表的編號：\n${near.join('、')}` : ''))];
 }
 
+async function api(path, opt = {}, host = 'api.line.me') {
+  const r = await fetch(`https://${host}/v2/bot/${path}`, { ...opt, headers: { Authorization: `Bearer ${env('LINE_CHANNEL_ACCESS_TOKEN')}`, ...(opt.headers || {}) } });
+  const t = await r.text();
+  if (!r.ok) throw new Error(`${path} ${r.status} ${t}`);
+  return t ? JSON.parse(t) : {};
+}
+async function setupMenu() {
+  const old = await api('richmenu/list');
+  for (const m of old.richmenus || []) await api(`richmenu/${m.richMenuId}`, { method: 'DELETE' });
+  const areas = [
+    { bounds: { x: 0, y: 0, width: 833, height: 843 }, action: { type: 'uri', label: '附近人孔', uri: 'https://line.me/R/nv/location/' } },
+    { bounds: { x: 833, y: 0, width: 833, height: 843 }, action: { type: 'postback', label: '選行政區', data: 'act=dist', displayText: '選行政區' } },
+    { bounds: { x: 1666, y: 0, width: 834, height: 843 }, action: site() ? { type: 'uri', label: '開啟快找', uri: site() } : { type: 'message', label: '說明', text: '說明' } },
+  ];
+  const { richMenuId } = await api('richmenu', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ size: { width: 2500, height: 843 }, selected: true, name: '南雨人孔快找', chatBarText: '人孔快找選單', areas }) });
+  await api(`richmenu/${richMenuId}/content`, { method: 'POST', headers: { 'Content-Type': 'image/png' }, body: Buffer.from(MENU_IMG, 'base64') }, 'api-data.line.me');
+  await api(`user/all/richmenu/${richMenuId}`, { method: 'POST' });
+  return richMenuId;
+}
+
 async function reply(token, messages) {
   const r = await fetch('https://api.line.me/v2/bot/message/reply', {
     method: 'POST',
@@ -137,6 +234,10 @@ async function reply(token, messages) {
 }
 
 export default async (req) => {
+  if (req.method === 'GET' && new URL(req.url).searchParams.get('setup') === 'menu') {
+    try { await setupMenu(); return new Response('✅ 圖文選單已建立！重新打開 LINE 聊天室就會看到下方的選單。', { headers: { 'content-type': 'text/plain; charset=utf-8' } }); }
+    catch (e) { return new Response('❌ 建立失敗：' + e.message, { status: 500, headers: { 'content-type': 'text/plain; charset=utf-8' } }); }
+  }
   if (req.method === 'GET') {
     const sec = env('LINE_CHANNEL_SECRET'), tok = env('LINE_CHANNEL_ACCESS_TOKEN');
     const chk = [
