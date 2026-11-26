@@ -58,6 +58,7 @@ function parse(text) {
 
 const fmt = v => (v == null ? '—' : v.toFixed(2) + ' m');
 const site = () => env('SITE_URL').replace(/\/$/, '');
+const nearUri = () => (env('LIFF_ID') ? `https://liff.line.me/${env('LIFF_ID')}` : 'https://line.me/R/nv/location/');
 
 function aaFlex(a) {
   const f = v => (v == null ? '—' : v.toFixed(2));
@@ -135,7 +136,7 @@ function bubble(o, dist) {
 
 const quick = () => ({
   items: [
-    ...(site() ? [{ type: 'action', action: { type: 'uri', label: '📍 附近人孔', uri: `${site()}/#near` } }] : []),
+    { type: 'action', action: { type: 'uri', label: '📍 附近人孔', uri: nearUri() } },
     { type: 'action', action: { type: 'location', label: '🗺️ 地圖搜尋' } },
     { type: 'action', action: { type: 'postback', label: '🗂️ 選行政區', data: 'act=dist', displayText: '選行政區' } },
     ...(site() ? [{ type: 'action', action: { type: 'uri', label: '🔍 開啟快找', uri: site() } }] : []),
@@ -223,6 +224,29 @@ function numberPicker(num) {
   return flexMsg(`編號 ${n} 的人孔`, bubbles.length === 1 ? bubbles[0] : { type: 'carousel', contents: bubbles });
 }
 
+function nearPicker(lat, lon) {
+  const list = nearest(lat, lon, 12);
+  if (!list.length) return textMsg('附近找不到人孔。');
+  const fd = d => (d < 1000 ? Math.round(d) + ' m' : (d / 1000).toFixed(1) + ' km');
+  const rows = list.map(([id, d]) => {
+    const o = get(id);
+    return { type: 'box', layout: 'horizontal', spacing: 'md', paddingAll: '10px', backgroundColor: '#f2f4f7', cornerRadius: '8px',
+      action: { type: 'postback', label: id, data: `act=id&id=${id}`, displayText: id },
+      contents: [
+        { type: 'text', text: id, weight: 'bold', color: '#0b63ce', size: 'sm', flex: 4 },
+        { type: 'text', text: o.rd || dname(o.code) || ' ', size: 'xs', color: '#687386', flex: 6, wrap: false },
+        { type: 'text', text: fd(d), size: 'sm', weight: 'bold', color: '#17202e', flex: 3, align: 'end' },
+      ] };
+  });
+  return flexMsg(`附近的人孔：${list.slice(0, 3).map(x => x[0]).join('、')}…`, {
+    type: 'bubble', size: 'mega',
+    header: { type: 'box', layout: 'vertical', backgroundColor: '#0b63ce', paddingAll: '12px', contents: [
+      { type: 'text', text: '📍 附近的人孔', color: '#ffffff', weight: 'bold', size: 'md' },
+      { type: 'text', text: '由近到遠・點一下看資料', color: '#ffffffcc', size: 'xxs' } ] },
+    body: { type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: '10px', contents: rows },
+  });
+}
+
 function nearest(lat, lon, k) {
   const r = Math.PI / 180, cos = Math.cos(lat * r), out = [];
   for (const [id, v] of Object.entries(DATA.mh)) {
@@ -233,7 +257,7 @@ function nearest(lat, lon, k) {
   return out.sort((a, b) => a[1] - b[1]).slice(0, k);
 }
 
-const HELP = '輸入人孔編號就能查詢，例如：\n・CWCR387\n・中西區 387\n・cwcr387\n・只打數字（1、001、0001）會列出各區同編號的人孔\n\n也可以用下方選單：\n・📍 附近人孔：用手機定位，列出最近的人孔\n・🗺️ 地圖搜尋：在地圖上點選位置，回傳最近 5 個\n・🗂️ 選行政區：依區、編號範圍點選\n・輸入區名（例如「北區」）直接選編號';
+const HELP = '輸入人孔編號就能查詢，例如：\n・CWCR387\n・中西區 387\n・cwcr387\n・只打數字（1、001、0001）會列出各區同編號的人孔\n\n也可以用下方選單：\n・📍 附近人孔：自動定位，列出最近的人孔\n・🗺️ 地圖搜尋：在地圖上點選位置，回傳最近 5 個\n・🗂️ 選行政區：依區、編號範圍點選\n・輸入區名（例如「北區」）直接選編號';
 
 function answer(ev) {
   const inGroup = ev.source && ev.source.type !== 'user';
@@ -250,11 +274,7 @@ function answer(ev) {
   }
   if (ev.type !== 'message') return null;
   const m = ev.message;
-  if (m.type === 'location') {
-    const list = nearest(m.latitude, m.longitude, 5).map(([id, d]) => bubble(get(id), d));
-    if (!list.length) return [textMsg('附近找不到人孔。')];
-    return [flexMsg('最近的 5 個人孔', { type: 'carousel', contents: list })];
-  }
+  if (m.type === 'location') return [nearPicker(m.latitude, m.longitude)];
   if (m.type !== 'text') return inGroup ? null : [textMsg(HELP)];
   let t = m.text;
   if (inGroup) {
@@ -302,7 +322,7 @@ async function setupMenu() {
   for (const m of old.richmenus || []) await api(`richmenu/${m.richMenuId}`, { method: 'DELETE' });
   const S = site();
   const areas = [
-    { bounds: { x: 0, y: 0, width: 625, height: 843 }, action: S ? { type: 'uri', label: '附近人孔', uri: `${S}/#near` } : { type: 'uri', label: '附近人孔', uri: 'https://line.me/R/nv/location/' } },
+    { bounds: { x: 0, y: 0, width: 625, height: 843 }, action: { type: 'uri', label: '附近人孔', uri: nearUri() } },
     { bounds: { x: 625, y: 0, width: 625, height: 843 }, action: { type: 'uri', label: '地圖搜尋', uri: 'https://line.me/R/nv/location/' } },
     { bounds: { x: 1250, y: 0, width: 625, height: 843 }, action: { type: 'postback', label: '選行政區', data: 'act=dist', displayText: '選行政區' } },
     { bounds: { x: 1875, y: 0, width: 625, height: 843 }, action: S ? { type: 'uri', label: '開啟快找', uri: S } : { type: 'message', label: '說明', text: '說明' } },
@@ -331,6 +351,9 @@ export default async (req) => {
   if (req.method === 'GET' && new URL(req.url).searchParams.get('setup') === 'menu') {
     try { await setupMenu(); return new Response('✅ 圖文選單已建立！重新打開 LINE 聊天室就會看到下方的選單。', { headers: { 'content-type': 'text/plain; charset=utf-8' } }); }
     catch (e) { return new Response('❌ 建立失敗：' + e.message, { status: 500, headers: { 'content-type': 'text/plain; charset=utf-8' } }); }
+  }
+  if (req.method === 'GET' && new URL(req.url).searchParams.get('cfg') !== null) {
+    return new Response(JSON.stringify({ liffId: env('LIFF_ID') }), { headers: { 'content-type': 'application/json' } });
   }
   const tq = req.method === 'GET' && new URL(req.url).searchParams.get('test');
   if (tq) {
