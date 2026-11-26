@@ -167,7 +167,9 @@ function nearest(lat, lon, k) {
 const HELP = '輸入人孔編號就能查詢，例如：\n・CWCR387\n・中西區 387\n・cwcr387\n\n也可以用下方選單：\n・📍 附近人孔：傳送位置，列出最近 5 個\n・🗂️ 選行政區：依區、編號範圍點選\n・輸入區名（例如「北區」）直接選編號';
 
 function answer(ev) {
+  const inGroup = ev.source && ev.source.type !== 'user';
   if (ev.type === 'follow') return [textMsg('歡迎使用南雨人孔調查表快找！\n\n' + HELP)];
+  if (ev.type === 'join') return [textMsg('大家好，我是南雨人孔快找 👋\n\n在群組裡直接打人孔編號（例如 CWCR387、中西區 387）我就會回覆。\n要選行政區或查區名，請 @我：\n・@南雨人孔快找 北區\n・只 @我 → 跳出行政區選單\n\n其他聊天內容我不會打擾。傳送位置資訊時，我會回覆附近的人孔。\n\n也可以點下方按鈕操作。')];
   if (ev.type === 'postback') {
     const q = new URLSearchParams(ev.postback.data);
     const act = q.get('act');
@@ -184,8 +186,22 @@ function answer(ev) {
     if (!list.length) return [textMsg('附近找不到人孔。')];
     return [flexMsg('最近的 5 個人孔', { type: 'carousel', contents: list })];
   }
-  if (m.type !== 'text') return [textMsg(HELP)];
-  const t = m.text.trim();
+  if (m.type !== 'text') return inGroup ? null : [textMsg(HELP)];
+  let t = m.text;
+  if (inGroup) {
+    // 群組裡：只有 @ 本帳號才回應
+    const ms = (m.mention && m.mention.mentionees) || [];
+    if (!ms.some(x => x.isSelf)) {
+      // 沒有 @：只在「整則訊息就是一個存在的人孔編號」時回應
+      const q = parse(t);
+      const o = q && q.code && q.num && !q.district ? lookup(q.code, q.num) : null;
+      return o ? [flexMsg(`${o.id} 頂高程 ${fmt(o.z)} 深度 ${fmt(o.d)}`, bubble(o))] : null;
+    }
+    for (const x of [...ms].sort((a, b) => b.index - a.index)) t = t.slice(0, x.index) + ' ' + t.slice(x.index + x.length);
+    t = t.trim();
+    if (!t) return [districtPicker()];
+  }
+  t = t.trim();
   if (/^(help|說明|\?|？|使用說明|怎麼用)$/i.test(t)) return [textMsg(HELP)];
   if (/^(選區|選行政區|行政區|選單|menu|開始)$/i.test(t)) return [districtPicker()];
   const p = parse(t);
