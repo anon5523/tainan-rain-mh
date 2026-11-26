@@ -98,7 +98,8 @@ function bubble(o, dist) {
 
 const quick = () => ({
   items: [
-    { type: 'action', action: { type: 'location', label: '📍 附近人孔' } },
+    ...(site() ? [{ type: 'action', action: { type: 'uri', label: '📍 附近人孔', uri: `${site()}/#near` } }] : []),
+    { type: 'action', action: { type: 'location', label: '🗺️ 地圖搜尋' } },
     { type: 'action', action: { type: 'postback', label: '🗂️ 選行政區', data: 'act=dist', displayText: '選行政區' } },
     ...(site() ? [{ type: 'action', action: { type: 'uri', label: '🔍 開啟快找', uri: site() } }] : []),
   ],
@@ -175,7 +176,7 @@ function nearest(lat, lon, k) {
   return out.sort((a, b) => a[1] - b[1]).slice(0, k);
 }
 
-const HELP = '輸入人孔編號就能查詢，例如：\n・CWCR387\n・中西區 387\n・cwcr387\n\n也可以用下方選單：\n・📍 附近人孔：傳送位置，列出最近 5 個\n・🗂️ 選行政區：依區、編號範圍點選\n・輸入區名（例如「北區」）直接選編號';
+const HELP = '輸入人孔編號就能查詢，例如：\n・CWCR387\n・中西區 387\n・cwcr387\n\n也可以用下方選單：\n・📍 附近人孔：用手機定位，列出最近的人孔\n・🗺️ 地圖搜尋：在地圖上點選位置，回傳最近 5 個\n・🗂️ 選行政區：依區、編號範圍點選\n・輸入區名（例如「北區」）直接選編號';
 
 function answer(ev) {
   const inGroup = ev.source && ev.source.type !== 'user';
@@ -239,10 +240,12 @@ async function api(path, opt = {}, host = 'api.line.me') {
 async function setupMenu() {
   const old = await api('richmenu/list');
   for (const m of old.richmenus || []) await api(`richmenu/${m.richMenuId}`, { method: 'DELETE' });
+  const S = site();
   const areas = [
-    { bounds: { x: 0, y: 0, width: 833, height: 843 }, action: { type: 'uri', label: '附近人孔', uri: 'https://line.me/R/nv/location/' } },
-    { bounds: { x: 833, y: 0, width: 833, height: 843 }, action: { type: 'postback', label: '選行政區', data: 'act=dist', displayText: '選行政區' } },
-    { bounds: { x: 1666, y: 0, width: 834, height: 843 }, action: site() ? { type: 'uri', label: '開啟快找', uri: site() } : { type: 'message', label: '說明', text: '說明' } },
+    { bounds: { x: 0, y: 0, width: 625, height: 843 }, action: S ? { type: 'uri', label: '附近人孔', uri: `${S}/#near` } : { type: 'uri', label: '附近人孔', uri: 'https://line.me/R/nv/location/' } },
+    { bounds: { x: 625, y: 0, width: 625, height: 843 }, action: { type: 'uri', label: '地圖搜尋', uri: 'https://line.me/R/nv/location/' } },
+    { bounds: { x: 1250, y: 0, width: 625, height: 843 }, action: { type: 'postback', label: '選行政區', data: 'act=dist', displayText: '選行政區' } },
+    { bounds: { x: 1875, y: 0, width: 625, height: 843 }, action: S ? { type: 'uri', label: '開啟快找', uri: S } : { type: 'message', label: '說明', text: '說明' } },
   ];
   const { richMenuId } = await api('richmenu', { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ size: { width: 2500, height: 843 }, selected: true, name: '南雨人孔快找', chatBarText: '人孔快找選單', areas }) });
