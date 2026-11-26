@@ -9,7 +9,7 @@ const PDF = 'https://sewer.water.tainan.gov.tw/TNRS/Uploads/investigate/';
 const CLS = { N: '正常人孔', C: '覆蓋人孔', V: '虛人孔' };
 const CODES = DATA.codes;
 const CODE_LIST = [...new Set(CODES.map(c => c.c))].sort((a, b) => b.length - a.length);
-const env = k => (globalThis.Netlify?.env?.get?.(k)) ?? process.env[k] ?? '';
+const env = k => String((globalThis.Netlify?.env?.get?.(k)) ?? process.env[k] ?? '').trim();
 
 const get = id => {
   const r = DATA.mh[id];
@@ -137,7 +137,15 @@ async function reply(token, messages) {
 }
 
 export default async (req) => {
-  if (req.method === 'GET') return new Response('南雨人孔 LINE 機器人運作中');
+  if (req.method === 'GET') {
+    const sec = env('LINE_CHANNEL_SECRET'), tok = env('LINE_CHANNEL_ACCESS_TOKEN');
+    const chk = [
+      `LINE_CHANNEL_SECRET：${!sec ? '❌ 沒有讀到' : sec.length === 32 ? '✅ 已設定（32 字元）' : `⚠️ 長度 ${sec.length}，正確應為 32 字元，可能貼錯`}`,
+      `LINE_CHANNEL_ACCESS_TOKEN：${!tok ? '❌ 沒有讀到' : tok.length > 100 ? '✅ 已設定' : `⚠️ 長度 ${tok.length}，太短，可能貼錯`}`,
+      `SITE_URL：${env('SITE_URL') || '（未設定）'}`,
+    ];
+    return new Response('南雨人孔 LINE 機器人運作中\n\n' + chk.join('\n'), { headers: { 'content-type': 'text/plain; charset=utf-8' } });
+  }
   const body = await req.text();
   const secret = env('LINE_CHANNEL_SECRET');
   const sig = req.headers.get('x-line-signature') || '';
