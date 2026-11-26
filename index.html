@@ -810,12 +810,12 @@ table.ct{width:100%;border-collapse:collapse;font-size:14px}
     <div class="card">
       <div class="row">
         <div class="cb"><label>行政區</label><input id="d1" type="text" placeholder="點選或輸入篩選" autocomplete="off"><div class="dd" id="d1dd"></div></div>
-        <div class="cb st" style="flex:.8"><label>人孔編號</label><input id="n1" type="text" placeholder="點選或輸入" autocomplete="off"><div class="dd" id="n1dd"></div></div>
+        <div class="cb st" style="flex:.8"><label>人孔編號</label><input id="n1" type="text" placeholder="例：1、001、CWCR387" autocomplete="off"><div class="dd" id="n1dd"></div></div>
       </div>
       <div class="sel" id="d1sel"></div>
       <button class="cam" id="camBtn" type="button">📷 拍孔蓋噴字，自動辨識編號</button>
       <input id="camIn" type="file" accept="image/*" capture="environment" hidden>
-      <p class="note" style="margin:8px 0 0">兩格都可以點選清單或直接打字；編號也可以直接打完整編號，例如 CWCR387。</p>
+      <p class="note" style="margin:8px 0 0">編號可以模糊搜尋：打 1、01、001 或 0001 都會列出編號 1 的人孔；沒選行政區時會搜尋全部行政區。</p>
     </div>
     <div id="one-res"></div>
   </section>
@@ -16980,10 +16980,18 @@ function combo(inp,dd,items,onPick){
   inp.addEventListener('blur',()=>setTimeout(()=>dd.classList.remove('on'),150));return show}
 function distItems(q){const s=q.toUpperCase().replace(/區$/,'');
   return CODES.filter(x=>!s||x.c.includes(s)||x.d.includes(s)||x.p.includes(q)).map(x=>({a:x.c,b:x.d+'・'+x.p.split('、')[0],c:pdfs(x.c).length+' 份',v:x.c}))}
-function idItems(q){const s=q.toUpperCase().replace(/\s/g,'');if(s.length<2)return [];const m=s.match(/^([A-Z]+)(\d*)$/);
-  let r=[];if(m&&BYC[m[1]])r=BYC[m[1]].filter(o=>o.id.startsWith(s));else r=ALLIDS.filter(id=>id.startsWith(s)).map(id=>MH[id]);
-  return r.slice(0,300).map(o=>({a:o.id,b:o.rd||dname(o.c),c:o.pdf?'':'無調查表',v:o.id}))}
-
+const DORD={};CODES.forEach((x,k)=>{if(!(x.c in DORD))DORD[x.c]=k});
+const numOf=o=>o.n?String(+o.n):'';
+function fuzzy(q,within){const s=q.toUpperCase().replace(/[\s\-－]/g,'');if(!s)return [];
+  let code='',num=s;const m=s.match(/^([A-Z]+)(\d*)$/);if(m){code=m[1];num=m[2]}else if(!/^\d+$/.test(s))return [];
+  if(within)code=within;
+  const pool=code?Object.keys(BYC).filter(c=>c.startsWith(code)).flatMap(c=>BYC[c]):Object.values(BYC).flat();
+  if(!num)return pool.slice().sort((a,b)=>(DORD[a.c]-DORD[b.c])||(+a.n-+b.n));
+  const n=String(+num);const ex=[],pre=[],con=[];
+  for(const o of pool){const k=numOf(o);if(k===n)ex.push(o);else if(k.startsWith(n)||o.n.startsWith(num))pre.push(o);else if(k.includes(n))con.push(o)}
+  const ord=(a,b)=>(b.pdf-a.pdf)||(DORD[a.c]-DORD[b.c])||(+a.n-+b.n);
+  return ex.sort(ord).concat(pre.sort((a,b)=>(+a.n-+b.n)||(DORD[a.c]-DORD[b.c])),con.sort((a,b)=>(+a.n-+b.n)||(DORD[a.c]-DORD[b.c])))}
+function idItems(q){return fuzzy(q).slice(0,300).map(o=>({a:o.id,b:(dname(o.c)+(o.rd?'・'+o.rd:'')),c:o.pdf?'':'無調查表',v:o.id}))}
 // ---------- detail card ----------
 const f2=v=>v==null?null:v.toFixed(2), f3=v=>v==null?null:v.toFixed(3);
 function val(v,u){return v==null?'<span class="v na">屬性表無資料</span>':`<span class="v">${v}${u||''}</span>`}
@@ -17074,9 +17082,10 @@ function bindRows(root,fn){root.querySelectorAll('.it[data-id]').forEach(b=>b.on
 let c1='';
 function setD1(c){c1=c;$('d1').value=c?`${c}　${dname(c)}`:'';$('d1sel').textContent=c?`${dname(c)}・共 ${pdfs(c).length} 份調查表`:''}
 combo($('d1'),$('d1dd'),distItems,c=>{setD1(c);$('n1').value='';$('one-res').innerHTML='';setTimeout(()=>$('n1').focus(),50)});
-function numItems(q){const s=q.toUpperCase();if(!c1)return idItems(q);
-  const L=BYC[c1]||[];const pre=L.filter(o=>!s||o.n.startsWith(s)||o.id.startsWith(s));const oth=s?L.filter(o=>!pre.includes(o)&&(o.n.includes(s)||o.rd.includes(q))):[];
-  return pre.concat(oth).map(o=>({a:o.n,b:o.rd,c:o.pdf?'':'無調查表',v:o.id}))}
+function numItems(q){const s=q.trim();if(!c1||/^[A-Za-z]/.test(s))return idItems(q);
+  if(!s)return (BYC[c1]||[]).map(o=>({a:o.n,b:o.rd,c:o.pdf?'':'無調查表',v:o.id}));
+  const f=/^\d+$/.test(s)?fuzzy(s,c1):(BYC[c1]||[]).filter(o=>o.rd.includes(s));
+  return f.map(o=>({a:o.n,b:o.rd,c:o.pdf?'':'無調查表',v:o.id}))}
 combo($('n1'),$('n1dd'),numItems,id=>showOne(id));
 function showOne(id,noScroll){const o=MH[id];if(!o)return;setTab('one');setD1(o.c);$('n1').value=o.n;$('one-res').innerHTML='<div class="card">'+detail(o)+'</div>';bindRows($('one-res'),i=>showOne(i));
   try{history.replaceState(null,'','#'+o.id)}catch(e){}if(!noScroll)window.scrollTo({top:0,behavior:'smooth'})}
