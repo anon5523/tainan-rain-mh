@@ -203,6 +203,26 @@ function hundredPanel(c, h) {
   return ids.length ? idPanels(c, ids, `${dname(c)}（${c}）選擇人孔`) : textMsg('這個範圍沒有調查表。');
 }
 
+// 模糊搜尋：只打數字（1、01、001、0001）→ 列出各區同編號的人孔
+const DORD = {};
+CODES.forEach((c, k) => { if (!(c.c in DORD)) DORD[c.c] = k; });
+function numberPicker(num) {
+  const n = String(+num);
+  const ex = [], pre = [];
+  for (const c of Object.keys(BYC)) for (const id of BYC[c]) {
+    const k = String(+id.slice(c.length));
+    if (k === n) ex.push([c, id]); else if (k.startsWith(n)) pre.push([c, id]);
+  }
+  ex.sort((a, b) => DORD[a[0]] - DORD[b[0]]);
+  if (ex.length === 1) { const o = get(ex[0][1]); return flexMsg(`${o.id} 頂高程 ${fmt(o.z)} 深度 ${fmt(o.d)}`, bubble(o)); }
+  const list = ex.length ? ex : pre.sort((a, b) => +a[1].slice(a[0].length) - +b[1].slice(b[0].length) || DORD[a[0]] - DORD[b[0]]).slice(0, 60);
+  if (!list.length) return textMsg(`找不到編號 ${num} 的人孔。`);
+  const cells = list.slice(0, 60).map(([c, id]) => cell(id, dname(c), `act=id&id=${id}`, id, '#ffffff'));
+  const bubbles = [];
+  for (let i = 0; i < cells.length; i += 24) bubbles.push(panel(ex.length ? `編號 ${n} 的人孔` : `編號 ${n} 開頭的人孔`, `${list.length} 筆${list.length > 60 ? '（顯示前 60 筆）' : ''}・由南往北排列`, grid(cells.slice(i, i + 24), 3)));
+  return flexMsg(`編號 ${n} 的人孔`, bubbles.length === 1 ? bubbles[0] : { type: 'carousel', contents: bubbles });
+}
+
 function nearest(lat, lon, k) {
   const r = Math.PI / 180, cos = Math.cos(lat * r), out = [];
   for (const [id, v] of Object.entries(DATA.mh)) {
@@ -213,7 +233,7 @@ function nearest(lat, lon, k) {
   return out.sort((a, b) => a[1] - b[1]).slice(0, k);
 }
 
-const HELP = '輸入人孔編號就能查詢，例如：\n・CWCR387\n・中西區 387\n・cwcr387\n\n也可以用下方選單：\n・📍 附近人孔：用手機定位，列出最近的人孔\n・🗺️ 地圖搜尋：在地圖上點選位置，回傳最近 5 個\n・🗂️ 選行政區：依區、編號範圍點選\n・輸入區名（例如「北區」）直接選編號';
+const HELP = '輸入人孔編號就能查詢，例如：\n・CWCR387\n・中西區 387\n・cwcr387\n・只打數字（1、001、0001）會列出各區同編號的人孔\n\n也可以用下方選單：\n・📍 附近人孔：用手機定位，列出最近的人孔\n・🗺️ 地圖搜尋：在地圖上點選位置，回傳最近 5 個\n・🗂️ 選行政區：依區、編號範圍點選\n・輸入區名（例如「北區」）直接選編號';
 
 function answer(ev) {
   const inGroup = ev.source && ev.source.type !== 'user';
@@ -253,6 +273,7 @@ function answer(ev) {
   t = t.trim();
   if (/^(help|說明|\?|？|使用說明|怎麼用)$/i.test(t)) return [textMsg(HELP)];
   if (/^(選區|選行政區|行政區|選單|menu|開始)$/i.test(t)) return [districtPicker()];
+  if (/^\d{1,4}$/.test(t)) return [numberPicker(t)];
   const p = parse(t);
   if (!p) return [textMsg('看不懂這個編號 🤔\n\n' + HELP)];
   if (p.district) return p.district.slice(0, 2).map(c => rangePicker(c.c));
@@ -262,6 +283,8 @@ function answer(ev) {
   }
   const o = lookup(p.code, p.num);
   if (o) return [flexMsg(`${o.id} 頂高程 ${fmt(o.z)} 深度 ${fmt(o.d)} ${o.lat != null ? o.lat.toFixed(6) + ',' + o.lon.toFixed(6) : ''}`, bubble(o))];
+  const pref = (BYC[p.code] || []).filter(id => String(+id.slice(p.code.length)).startsWith(String(+p.num)));
+  if (pref.length) return [idPanels(p.code, pref.slice(0, 50), `${p.code}${p.num}… 的人孔`)];
   const n = +p.num;
   const near = Object.keys(DATA.mh).filter(id => id.startsWith(p.code) && /^\d+$/.test(id.slice(p.code.length)) && DATA.mh[id][4])
     .map(id => [id, Math.abs(+id.slice(p.code.length) - n)]).sort((a, b) => a[1] - b[1]).slice(0, 5).map(a => a[0]).sort();
