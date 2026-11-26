@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>附近人孔定位中</title>
+<style>
+  body{margin:0;font-family:system-ui,-apple-system,"Noto Sans TC","PingFang TC",sans-serif;background:#0b63ce;color:#fff;display:flex;min-height:100vh;align-items:center;justify-content:center;text-align:center}
+  .box{padding:24px;max-width:320px}
+  .pin{font-size:56px;animation:b 1s ease-in-out infinite alternate}
+  @keyframes b{to{transform:translateY(-10px)}}
+  h1{font-size:20px;margin:12px 0 6px}
+  p{font-size:14px;opacity:.85;line-height:1.6;margin:0}
+  a.btn,button{display:block;margin:18px auto 0;padding:13px 18px;border-radius:12px;border:0;background:#fff;color:#0b63ce;font-size:16px;font-weight:700;text-decoration:none;width:100%;box-sizing:border-box}
+  .hide{display:none}
+</style>
+</head>
+<body>
+<div class="box">
+  <div class="pin">📍</div>
+  <h1 id="t">正在取得你的位置…</h1>
+  <p id="m">第一次使用時，LINE 會詢問是否允許使用位置資訊，請按「允許」。</p>
+  <button id="retry" class="hide" type="button">再試一次</button>
+  <a id="map" class="btn hide" href="https://line.me/R/nv/location/">改用地圖選位置</a>
+</div>
+<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const fail = (t, m) => { $('t').textContent = t; $('m').textContent = m; $('retry').classList.remove('hide'); $('map').classList.remove('hide'); document.querySelector('.pin').style.animation = 'none'; };
+async function run() {
+  $('retry').classList.add('hide'); $('map').classList.add('hide');
+  $('t').textContent = '正在取得你的位置…';
+  let liffId = '';
+  try { liffId = (await (await fetch('/api/line?cfg')).json()).liffId; } catch (e) {}
+  try { await liff.init({ liffId }); } catch (e) { return fail('無法啟動', '請從 LINE 聊天室的選單開啟。'); }
+  if (!liff.isInClient()) return fail('請在 LINE 裡開啟', '這個頁面要從 LINE 聊天室下方的「附近人孔」按鈕開啟。');
+  navigator.geolocation.getCurrentPosition(async p => {
+    $('t').textContent = '找到位置，正在查詢…';
+    try {
+      await liff.sendMessages([{ type: 'location', title: '我的位置', address: `附近人孔查詢（誤差約 ${Math.round(p.coords.accuracy)} m）`, latitude: p.coords.latitude, longitude: p.coords.longitude }]);
+      liff.closeWindow();
+    } catch (e) {
+      fail('無法傳送位置', '請確認是從聊天室開啟，或改用地圖選位置。');
+    }
+  }, () => fail('無法取得位置', '請在手機設定中允許 LINE 使用位置資訊並開啟 GPS，或改用地圖選位置。'), { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 });
+}
+$('retry').onclick = run;
+run();
+</script>
+</body>
+</html>
