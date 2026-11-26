@@ -12965,7 +12965,7 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeTbl();$('ocrOv
 
 // ---------- start ----------
 document.documentElement.style.setProperty('--hh',$('hdr').offsetHeight+'px');
-function fromHash(){const h=decodeURIComponent(location.hash.slice(1));const o=lookup(h);if(o)showOne(o.id)}
+function fromHash(){const h=decodeURIComponent(location.hash.slice(1));if(h==='near'){setTab('loc');$('gps').click();return}if(h==='map'){setTab('map');return}const o=lookup(h);if(o)showOne(o.id)}
 fromHash();window.addEventListener('hashchange',fromHash);
 </script>
 </body>
